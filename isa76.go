@@ -11,6 +11,8 @@ package main
 import (
     "fmt"
     "strconv"
+    "math"
+    "strings"
 )
 
 const (
@@ -40,12 +42,12 @@ type layer struct {
 
 type isa76 struct {
     layers              []layer
-    params              []AtmoParams
+    params              AtmoParams
 
     seaLevelTemp        float64
     layersInitialized   bool
     layersDisplay       string
-    customAltitude      string
+    custAltitude      string
     lastAltitude        float64
     lastUnit            string
     
@@ -57,7 +59,7 @@ func (isa *isa76) set() {
     isa.seaLevelTemp = 0.0
     isa.layersInitialized = false
     isa.layersDisplay = ""
-    isa.customAltitude = ""
+    isa.custAltitude = ""
     isa.lastAltitude = 0.0001
     isa.lastUnit = ""
 
@@ -132,7 +134,7 @@ class isa76 {
 
     var layersInitialized = false
     var layersDisplay = ""
-    var customAltitude = ""
+    var custAltitude = ""
     var lastAltitude = 0.0001
     var lastUnit = ""
 
@@ -186,7 +188,7 @@ class isa76 {
 */
 
 func (isa *isa76) setSealevelTemp(newTemp string) {
-    var temp = strconv.Atof(newTemp)
+    var temp, _ = strconv.ParseFloat(newTemp, 64)
     
     // temperature must be in kelvin
     if temp < 0.0 {
@@ -204,11 +206,12 @@ func (isa *isa76) setPressure(inout tuple:(name: String, base_altitude:Double, t
 
 func (isa *isa76) customAltitude(alt, unit string) {
 
-    altitude := strconv.ParseFloat(alt, 64)
-
+    altitude, _ := strconv.ParseFloat(alt, 64)
+    mulfactor := 1.0
     if unit == "f" {
         // convert altitude in metrics
         altitude = altitude / 3.2808
+        mulfactor = 3.2808
     }
 
     // calculate geopotential altitude and perform sanity check
@@ -236,7 +239,7 @@ func (isa *isa76) customAltitude(alt, unit string) {
 //        getParameters(altitude, geoPotentialAlt:geopoAltitude)
         isa.getParameters(altitude, geopoAltitude)
     }
-
+    fmt.Printf("Altitude: %v (%v)\nGeopotential Altitude: %v (%v)\n", altitude*1000*mulfactor, unit, geopoAltitude*1000*mulfactor, unit)
 }
     
 //func (isa *isa76) getParameters(geometricAltitude float64, geoPotentialAlt geopoAltitude:Double) {
@@ -249,43 +252,43 @@ func (isa *isa76) getParameters(geometricAltitude float64, geopoAltitude float64
             delta_h := geopoAltitude - layer.base_altitude
             localTemp := layer.baseTemp + (layer.lapseRate * delta_h)
             
-            isa.params.tempRatio = localTemp / seaLevelTemp // -> aka theta
+            isa.params.tempRatio = localTemp / isa.seaLevelTemp // -> aka theta
             isa.params.geopotentialAltMeters = geopoAltitude * 1000
-            isa.params.geopotentialAltFeet = params.geopotentialAltMeters * 3.28084
+            isa.params.geopotentialAltFeet = isa.params.geopotentialAltMeters * 3.28084
             
             isa.params.geometricAltMeters = geometricAltitude * 1000
             isa.params.geometricAltFeet = isa.params.geometricAltMeters * 3.28084
             
             if layer.lapseRate == 0.0 {
                 // isothermal
-                isa.params.pressureRatio = layer.pressRatio * math.Pow(M_E, -GMR*(delta_h/layer.baseTemp))   // -> aka delta
+                isa.params.pressureRatio = layer.pressRatio * math.Exp(-isa.GMR*(delta_h/layer.baseTemp))   // -> aka delta
             } else {
-                isa.params.pressureRatio = layer.pressRatio * math.Pow(layer.baseTemp/localTemp, GMR/layer.lapseRate) // -> aka delta
+                isa.params.pressureRatio = layer.pressRatio * math.Pow(layer.baseTemp/localTemp, isa.GMR/layer.lapseRate) // -> aka delta
             }
             
-            isa.params.densityRatio = params.pressureRatio / params.tempRatio // -> aka sigma
+            isa.params.densityRatio = isa.params.pressureRatio / isa.params.tempRatio // -> aka sigma
 
             isa.params.layerName = layer.name
             isa.params.densityRatio = isa.params.pressureRatio / isa.params.tempRatio
-            isa.params.temperatureK = isa.params.tempRatio * seaLevelTemp
+            isa.params.temperatureK = isa.params.tempRatio * isa.seaLevelTemp
             isa.params.temperatureC = isa.params.temperatureK - 273.15
             isa.params.temperatureF = ((isa.params.temperatureK - 273.15) * 1.8) + 32
             isa.params.temperatureR = (isa.params.temperatureK) * 1.8
             
             isa.params.pressure     = isa.params.pressureRatio * seaLevelPressure
             isa.params.density      = isa.params.densityRatio * seaLevelDensity
-            isa.params.soundSpeed   = pow((GAMMA_AIR * isa.params.temperatureK * R_SGC), 0.5)
+            isa.params.soundSpeed   = math.Pow((GAMMA_AIR * isa.params.temperatureK * R_SGC), 0.5)
         }
     }
 }
-    
+
 func (isa *isa76) showEarthAcceleration() string {
         
         //         Re^2         where Re is the radius of the earth
         // g = -------------    hg is the geometric altitude above sea level
         //     go (Re + hg)2
         
-        glocal := GRAVITY_ACC * math.Pow(EARTHRADIUS, 2) / math.Pow(EARTHRADIUS + params.geometricAltMeters, 2)
+        glocal := GRAVITY_ACC * math.Pow(EARTHRADIUS, 2) / math.Pow(EARTHRADIUS + isa.params.geometricAltMeters, 2)
         
         //postProcessed := output.normalizeNumber(String(format:"%2.6f",round(glocal*1000000)/1000000))
         //return postProcessed
@@ -305,8 +308,8 @@ func (isa *isa76) showEarthAcceleration() string {
 
     }
 */    
-func formatTitle(label, unit string) string {
-    return fmt.Sprintf("** %v (%v) **\n", label, unit)
+func formatTitle(label string) string {
+    return fmt.Sprintf("** %v **\n", label)
 }
 
 func addLine(value, unit, label string) string {
@@ -317,35 +320,35 @@ func addHeadline(layerName, unit, label string) string {
     return fmt.Sprintf("   %v %v (%v)\n", layerName, unit, label)
 }
 
-func normalizeNumber(fmt string, value float64) string {
-    return fmt.Sprintf(fmt, value)
+func normalizeNumber(formatstr string, value float64) string {
+    return fmt.Sprintf(formatstr, value)
 }
 
-func endTable(label, unit string) string {
-    return fmt.Sprintf("** %v (%v) **\n", label, unit)
+func endTable() string {
+    return fmt.Sprintf("\n")
 }
 
 func (isa *isa76) showTemperature(abrvFrom string) string {
     var postProcessed = ""
     var localValue = ""
-    localValue = formatTitle("Temperature", abrvFrom)
+    localValue = formatTitle("Temperature")
     
 //    postProcessed = normalizeNumber(fmt.String(format:"%4.2f",round(isa.params.temperatureK*1000)/1000))
-    postProcessed = normalizeNumber("%4.2f", round(isa.params.temperatureK*1000)/1000)
+    postProcessed = normalizeNumber("%4.2f", math.Round(isa.params.temperatureK*1000)/1000)
     localValue = localValue + addLine(postProcessed, "K", "Kelvin")
     
-    postProcessed = normalizeNumber("%4.2f", round(isa.params.temperatureC*1000)/1000)
+    postProcessed = normalizeNumber("%4.2f", math.Round(isa.params.temperatureC*1000)/1000)
     localValue = localValue + addLine(postProcessed, "C", "Celcius")
     
-    postProcessed = normalizeNumber("%4.2f", round(isa.params.temperatureF*1000)/1000)
+    postProcessed = normalizeNumber("%4.2f", math.Round(isa.params.temperatureF*1000)/1000)
     localValue = localValue + addLine(postProcessed, "F", "Fahrenheit")
     
-    postProcessed = normalizeNumber("%4.2f", round(isa.params.temperatureR*1000)/1000)
+    postProcessed = normalizeNumber("%4.2f", math.Round(isa.params.temperatureR*1000)/1000)
     localValue = localValue + addLine(postProcessed, "R", "Rankine")
     
-    postProcessed = normalizeNumber("%4.2f", round(isa.params.tempRatio*1000)/1000)
+    postProcessed = normalizeNumber("%4.2f", math.Round(isa.params.tempRatio*1000)/1000)
     localValue = localValue + addLine(postProcessed, "", "[θ] (Ratio t/t0)")
-    localValue += output.endTable()
+    //localValue += endTable()
     
     return localValue
 }
@@ -355,37 +358,37 @@ func (isa *isa76) showPressure(abrvFrom string) string {
     var postProcessed = ""
     var localValue = ""
     
-    localValue = formatTitle("Pressure", abrvFrom)
+    localValue = formatTitle("Pressure")
 
     
-    postProcessed = normalizeNumber("%7.6f", round(self.params.pressure*100000)/100000)
+    postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.pressure*100000)/100000)
     localValue = localValue + addLine(postProcessed, "pa", "pascals")
 
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressure * 1E-03)*1E+9)/1E+9)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressure * 1E-03)*1E+9)/1E+9)
     localValue = localValue + addLine(postProcessed, "kpa", "kilopascals")
 
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressure * 1E-05)*1E+9)/1E+9)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressure * 1E-05)*1E+9)/1E+9)
     localValue = localValue + addLine(postProcessed, "bar", "bars")
     
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressure * 1E-02)*1E+6)/1E+6)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressure * 1E-02)*1E+6)/1E+6)
     localValue = localValue + addLine(postProcessed, "mbar", "millibars")
     
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressure/6.8947572798677E+03)*1E+5)/1E+5)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressure/6.8947572798677E+03)*1E+5)/1E+5)
     localValue = localValue + addLine(postProcessed, "lb/in²", "pound/inch²")
     
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressure/0.47880258888E+02)*1E+5)/1E+5)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressure/0.47880258888E+02)*1E+5)/1E+5)
     localValue = localValue + addLine(postProcessed, "lb/ft²", "pound/foot²")
     
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressure/1.013250E+05)*1E+9)/1E+9)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressure/1.013250E+05)*1E+9)/1E+9)
     localValue = localValue + addLine(postProcessed, "atm", "atmosphere")
     
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressure/1.3332239E+02)*1E+5)/1E+5)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressure/1.3332239E+02)*1E+5)/1E+5)
     localValue = localValue + addLine(postProcessed, "mmhg", "mm of mercury")
     
-    postProcessed = normalizeNumber("%7.6f", round((self.params.pressureRatio)*1E+8)/1E+8)
+    postProcessed = normalizeNumber("%7.6f", math.Round((isa.params.pressureRatio)*1E+8)/1E+8)
     localValue = localValue + addLine(postProcessed, "", "[δ] (Ratio p/p0)")
     
-    localValue = localValue + endTable()
+    //localValue = localValue + endTable()
     
     return localValue
 }
@@ -395,29 +398,29 @@ func (isa *isa76) showSoundSpeed(abrvFrom string) string {
     var postProcessed = ""
     var localValue = ""
     
-    localValue = formatTitle("Speed of Sound", abrvFrom)
+    localValue = formatTitle("Speed of Sound")
 
     
     metricValue := math.Pow((GAMMA_AIR * isa.params.temperatureK * R_SGC), 0.5)
     
-    postProcessed = normalizeNumber("%4.3f", round(metricValue*1000)/1000)
+    postProcessed = normalizeNumber("%4.3f", math.Round(metricValue*1000)/1000)
     localValue = localValue + addLine(postProcessed, "m/s", "meters/second")
 
-    postProcessed = normalizeNumber("%4.3f", round((metricValue/340.37713655487805)*1000)/1000)
+    postProcessed = normalizeNumber("%4.3f", math.Round((metricValue/340.37713655487805)*1000)/1000)
     localValue = localValue + addLine(postProcessed, "mach", "mach number")
     
-    postProcessed = normalizeNumber("%4.3f", round((metricValue*3.281)*1000)/1000)
+    postProcessed = normalizeNumber("%4.3f", math.Round((metricValue*3.281)*1000)/1000)
     localValue = localValue + addLine(postProcessed, "ft/s", "feet/second")
     
-    postProcessed = normalizeNumber("%4.3f", round((metricValue*3.6)*1000)/1000)
+    postProcessed = normalizeNumber("%4.3f", math.Round((metricValue*3.6)*1000)/1000)
     localValue = localValue + addLine(postProcessed, "km/h", "kilometers/hour")
 
-    postProcessed = normalizeNumber("%4.3f", round((metricValue*(0.000621371*3600))*1000)/1000)
+    postProcessed = normalizeNumber("%4.3f", math.Round((metricValue*(0.000621371*3600))*1000)/1000)
     localValue = localValue + addLine(postProcessed, "mi/h", "miles/hour")
     
-    postProcessed = normalizeNumber("%4.3f", round((metricValue*1.94384)*1000)/1000)
+    postProcessed = normalizeNumber("%4.3f", math.Round((metricValue*1.94384)*1000)/1000)
     localValue = localValue + addLine(postProcessed, "kts", "knots")
-    localValue = localValue + endTable()
+    //localValue = localValue + endTable()
 
     return localValue
 }
@@ -427,27 +430,27 @@ func (isa *isa76) showDensity(abrvFrom string) string {
     var postProcessed = ""
     var localValue = ""
     
-    localValue = formatTitle("Density", abrvFrom)
+    localValue = formatTitle("Density")
 
     
-    postProcessed = normalizeNumber("%3.9f", round(self.params.density*1000000000)/1000000000)
+    postProcessed = normalizeNumber("%3.9f", math.Round(isa.params.density*1000000000)/1000000000)
     localValue = localValue + addLine(postProcessed, "kg/m³", "kilograms/meter³")
     
-    postProcessed = normalizeNumber("%3.9f", round((self.params.density * 1.94024058983E-03)*1000000000)/1000000000)
+    postProcessed = normalizeNumber("%3.9f", math.Round((isa.params.density * 1.94024058983E-03)*1000000000)/1000000000)
     localValue = localValue + addLine(postProcessed, "slug/ft³", "slug/foot³")
     
-    postProcessed = normalizeNumber("%3.9f", round((self.params.density/1000)*1000000000)/1000000000)
+    postProcessed = normalizeNumber("%3.9f", math.Round((isa.params.density/1000)*1000000000)/1000000000)
     localValue = localValue + addLine(postProcessed, "g/cm³", "gram/centimeter³")
     
-    postProcessed = normalizeNumber("%3.9f", round((self.params.density * 1.94024058983E-03/53.7056928034)*1000000000)/1000000000)
+    postProcessed = normalizeNumber("%3.9f", math.Round((isa.params.density * 1.94024058983E-03/53.7056928034)*1000000000)/1000000000)
     localValue = localValue + addLine(postProcessed, "lb/in³", "pound/inch³")
 
-    postProcessed = normalizeNumber("%3.9f", round((self.params.density * 1.94024058983E-03/3.10848616723E-02)*1000000000)/1000000000)
+    postProcessed = normalizeNumber("%3.9f", math.Round((isa.params.density * 1.94024058983E-03/3.10848616723E-02)*1000000000)/1000000000)
     localValue = localValue + addLine(postProcessed, "lb/ft³", "pound/foot³")
     
-    postProcessed = normalizeNumber("%3.9f", round((self.params.densityRatio)*1000000000)/1000000000)
+    postProcessed = normalizeNumber("%3.9f", math.Round((isa.params.densityRatio)*1000000000)/1000000000)
     localValue = localValue + addLine(postProcessed, "", "[σ] (Ratio ρ/ρ0)")
-    localValue = localValue + endTable()
+   // localValue = localValue + endTable()
 
     return localValue
 }
@@ -456,87 +459,87 @@ func (isa *isa76) showAllMetrics(abrvFrom string) string {
     var postProcessed = ""
     var localValue = ""
     
-    localValue = formatTitle("All Parameters", abrvFrom)
+    localValue = formatTitle("All Parameters")
 
     // layer name
     localValue = localValue + addHeadline(isa.params.layerName, "", "Layer Name")
     
     // geometric
-    postProcessed = normalizeNumber("%5.2f", round(self.params.geometricAltMeters*100)/100)
+    postProcessed = normalizeNumber("%5.2f", math.Round(isa.params.geometricAltMeters*100)/100)
     localValue = localValue + addLine(postProcessed, "m", "Geometric Alt.")
     
     // geopotential
-    postProcessed = normalizeNumber("%5.2f", round(self.params.geopotentialAltMeters*100)/100)
+    postProcessed = normalizeNumber("%5.2f", math.Round(isa.params.geopotentialAltMeters*100)/100)
     localValue = localValue + addLine(postProcessed, "m", "Geopotential Alt.")
     
     // density
-    postProcessed = normalizeNumber("%3.9f", round(self.params.density*1000000000)/1000000000)
+    postProcessed = normalizeNumber("%3.9f", math.Round(isa.params.density*1000000000)/1000000000)
     localValue = localValue + addLine(postProcessed, "kg/m³", "Density")
     
     // speed of sound
-    metricValue := math.Pow((GAMMA_AIR * self.params.temperatureK * R_SGC), 0.5)
-    postProcessed = normalizeNumber("%4.3f", round(metricValue*1000)/1000)
+    metricValue := math.Pow((GAMMA_AIR * isa.params.temperatureK * R_SGC), 0.5)
+    postProcessed = normalizeNumber("%4.3f", math.Round(metricValue*1000)/1000)
     localValue = localValue + addLine(postProcessed, "m/s", "Speed of sound")
     
     // pressure
-    postProcessed = normalizeNumber("%7.6f", round(self.params.pressure*1000)/1000)
+    postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.pressure*1000)/1000)
     localValue = localValue + addLine(postProcessed, "pa", "Pressure")
 
     // temperature
-    postProcessed = normalizeNumber("%4.2f", round(self.params.temperatureK*1000)/1000)
+    postProcessed = normalizeNumber("%4.2f", math.Round(isa.params.temperatureK*1000)/1000)
     localValue = localValue + addLine(postProcessed, "K", "Temperature")
     
     // gravity acceleration
     // temperature
-    localValue = localValue + addLine(showEarthAcceleration(), "m/s²", "Accel. of gravity")
+    localValue = localValue + addLine(isa.showEarthAcceleration(), "m/s²", "Accel. of gravity")
 
-    localValue += output.endTable()
+    //localValue += output.endTable()
     return localValue
 
 }
     
 func (isa *isa76) showCustomAltitude(fromValue string) string {
     var postProcessed = ""
-    if lastAltitude > -610 {
+    if isa.lastAltitude > -610 {
         
-        customAltitude = "Geometric Alt:".uppercaseString + "\n"
-        postProcessed = normalizeNumber("%7.6f", round(self.params.geometricAltMeters*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " m ("
-        postProcessed = normalizeNumber("%7.6f", round(self.params.geometricAltFeet*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " ft)\n"
+        isa.custAltitude = strings.ToUpper("Geometric Alt:") + "\n"
+        postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.geometricAltMeters*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " m ("
+        postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.geometricAltFeet*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " ft)\n"
         
-        customAltitude = customAltitude + "\nGeopotential Alt:".uppercaseString+"\n"
-        postProcessed  = normalizeNumber("%7.6f", round(self.params.geopotentialAltMeters*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " m ("
-        postProcessed  = normalizeNumber("%7.6f", round(self.params.geopotentialAltFeet*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " ft)\n"
+        isa.custAltitude = isa.custAltitude + strings.ToUpper("\nGeopotential Alt:") + "\n"
+        postProcessed  = normalizeNumber("%7.6f", math.Round(isa.params.geopotentialAltMeters*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " m ("
+        postProcessed  = normalizeNumber("%7.6f", math.Round(isa.params.geopotentialAltFeet*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " ft)\n"
         
-        customAltitude = customAltitude + "\nTemperature:".uppercaseString + "\n"
-        postProcessed = normalizeNumber("%7.6f", round(self.params.temperatureK*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " Kelvin\n"
+        isa.custAltitude = isa.custAltitude + strings.ToUpper("\nTemperature:") + "\n"
+        postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.temperatureK*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " Kelvin\n"
         
-        postProcessed = normalizeNumber("%7.6f", round(self.params.temperatureC*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " Celcius\n"
-        postProcessed = normalizeNumber("%7.6f", round(self.params.temperatureF*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " Fahrenheit\n"
+        postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.temperatureC*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " Celcius\n"
+        postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.temperatureF*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " Fahrenheit\n"
         
         
         
-        customAltitude = customAltitude + "\nPressure:".uppercaseString+"\n"
-        postProcessed = normalizeNumber("%7.6f", round(self.params.pressure*10000000)/10000000)
-        customAltitude = customAltitude + postProcessed + " pa\n"
+        isa.custAltitude = isa.custAltitude + strings.ToUpper("\nPressure:") + "\n"
+        postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.pressure*10000000)/10000000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " pa\n"
         
-        customAltitude = customAltitude + "\nDensity:".uppercaseString+"\n"
-        postProcessed = normalizeNumber("%7.6f", round(self.params.density*100000000)/100000000)
-        customAltitude = customAltitude + postProcessed + " Kg/m³\n"
+        isa.custAltitude = isa.custAltitude + strings.ToUpper("\nDensity:") + "\n"
+        postProcessed = normalizeNumber("%7.6f", math.Round(isa.params.density*100000000)/100000000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " Kg/m³\n"
         
-        customAltitude = customAltitude + "\nSpeed of sound:".uppercaseString+"\n"
-        postProcessed = normalizeNumber("%7.6f", round(pow((GAMMA_AIR * self.params.temperatureK * R_SGC), 0.5)*1000)/1000)
-        customAltitude = customAltitude + postProcessed + " m/s\n"
+        isa.custAltitude = isa.custAltitude + strings.ToUpper("\nSpeed of sound:") + "\n"
+        postProcessed = normalizeNumber("%7.6f", math.Round(math.Pow((GAMMA_AIR * isa.params.temperatureK * R_SGC), 0.5)*1000)/1000)
+        isa.custAltitude = isa.custAltitude + postProcessed + " m/s\n"
         
-        customAltitude = customAltitude + "\nLayer Name:".uppercaseString + "\n" + isa.params.layerName + "\n"
+        isa.custAltitude = isa.custAltitude + strings.ToUpper("\nLayer Name:") + "\n" + isa.params.layerName + "\n"
     }
-    return customAltitude
+    return isa.custAltitude
 }
     
 func (isa *isa76) showAbout() string {
@@ -586,7 +589,16 @@ func (isa *isa76) showAllLayers() string {
 }
 
 func main() {
+    var alt int
+    var unit string
     var isa = isa76{}
     isa.set()
-    isa.showTemperature(0)
+    for {
+        unit = "m"
+        fmt.Scanf("%d %s", &alt, &unit)
+        isa.customAltitude(strconv.Itoa(alt), unit)
+        fmt.Println(isa.showAllMetrics(""))
+        //fmt.Println(isa.showTemperature(""))
+        //fmt.Println(isa.showSoundSpeed(""))
+    }
 }
