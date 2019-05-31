@@ -42,7 +42,7 @@ type layer struct {
 }
 
 type isa76 struct {
-    layers              []layer
+    layers              []*layer
     params              AtmoParams
 
     seaLevelTemp        float64
@@ -56,6 +56,10 @@ type isa76 struct {
     GMR                 float64 
 }
 
+
+var stdPressure = make(map[float64]float64)
+var custPressure = make(map[float64]float64)
+
 func (isa *isa76) set() {
     isa.seaLevelTemp = 0.0
     isa.layersInitialized = false
@@ -64,20 +68,30 @@ func (isa *isa76) set() {
     isa.lastAltitude = 0.0001
     isa.lastUnit = ""
 
+    stdPressure[-5.004] = 1.7543
+    stdPressure[0.0] = 1.0
+    stdPressure[11.0] = 2.233611E-1
+    stdPressure[20.0] = 5.403295E-2
+    stdPressure[32.0] = 8.5666784E-3
+    stdPressure[47.0] = 1.0945601E-3
+    stdPressure[51.0] = 6.6063531E-4
+    stdPressure[71.0] = 3.9046834E-5
+    stdPressure[84.852] = 3.68501E-6
+
+
     isa.GMR = GRAVITY_ACC * (MOL_WT / R_GAS) // hydrostatic constant
         
     isa.seaLevelTemp = STD_SEALEVEL_TEMP
     
-    isa.layers = append(isa.layers, layer{name: "Negative Troposphere", base_altitude:-5.004, top_altitude:0.0,     baseTemp: 320.676,  pressRatio: 1.7543,       lapseRate:-6.5 })
-    isa.layers = append(isa.layers, layer{name: "Troposphere",          base_altitude:0.0,    top_altitude:11.0,    baseTemp: STD_SEALEVEL_TEMP,   pressRatio: 1.0,          lapseRate:-6.5 })
-
-    isa.layers = append(isa.layers, layer{name: "Tropopause",           base_altitude:11.0,   top_altitude:20.0,    baseTemp: 216.65,   pressRatio: 2.233611E-1,  lapseRate: 0.0 })
-    isa.layers = append(isa.layers, layer{name: "Low Stratosphere",     base_altitude:20.0,   top_altitude:32.0,    baseTemp: 216.65,   pressRatio: 5.403295E-2,  lapseRate: 1.0 })
-    isa.layers = append(isa.layers, layer{name: "High Stratosphere",    base_altitude:32.0,   top_altitude:47.0,    baseTemp: 228.65,   pressRatio: 8.5666784E-3, lapseRate: 2.8 })
-    isa.layers = append(isa.layers, layer{name: "Stratopause",          base_altitude:47.0,   top_altitude:51.0,    baseTemp: 270.65,   pressRatio: 1.0945601E-3, lapseRate: 0.0 })
-    isa.layers = append(isa.layers, layer{name: "Low Mesophere",        base_altitude:51.0,   top_altitude:71.0,    baseTemp: 270.65,   pressRatio: 6.6063531E-4, lapseRate:-2.8 })
-    isa.layers = append(isa.layers, layer{name: "High Mesophere",       base_altitude:71.0,   top_altitude:84.852,  baseTemp: 214.65,   pressRatio: 3.9046834E-5, lapseRate:-2.0 })
-    isa.layers = append(isa.layers, layer{name: "Mesopause",            base_altitude:84.852, top_altitude:86.0,    baseTemp: 186.946,  pressRatio: 3.68501E-6,   lapseRate: 0.0 })
+    isa.layers = append(isa.layers, &layer{name: "Negative Troposphere", base_altitude:-5.004, top_altitude:0.0,     baseTemp: 320.676,              pressRatio: 1.7543,       lapseRate:-6.5 })
+    isa.layers = append(isa.layers, &layer{name: "Troposphere",          base_altitude:0.0,    top_altitude:11.0,    baseTemp: STD_SEALEVEL_TEMP,    pressRatio: 1.0,          lapseRate:-6.5 })
+    isa.layers = append(isa.layers, &layer{name: "Tropopause",           base_altitude:11.0,   top_altitude:20.0,    baseTemp: 216.65,               pressRatio: 2.233611E-1,  lapseRate: 0.0 })
+    isa.layers = append(isa.layers, &layer{name: "Low Stratosphere",     base_altitude:20.0,   top_altitude:32.0,    baseTemp: 216.65,               pressRatio: 5.403295E-2,  lapseRate: 1.0 })
+    isa.layers = append(isa.layers, &layer{name: "High Stratosphere",    base_altitude:32.0,   top_altitude:47.0,    baseTemp: 228.65,               pressRatio: 8.5666784E-3, lapseRate: 2.8 })
+    isa.layers = append(isa.layers, &layer{name: "Stratopause",          base_altitude:47.0,   top_altitude:51.0,    baseTemp: 270.65,               pressRatio: 1.0945601E-3, lapseRate: 0.0 })
+    isa.layers = append(isa.layers, &layer{name: "Low Mesophere",        base_altitude:51.0,   top_altitude:71.0,    baseTemp: 270.65,               pressRatio: 6.6063531E-4, lapseRate:-2.8 })
+    isa.layers = append(isa.layers, &layer{name: "High Mesophere",       base_altitude:71.0,   top_altitude:84.852,  baseTemp: 214.65,               pressRatio: 3.9046834E-5, lapseRate:-2.0 })
+    isa.layers = append(isa.layers, &layer{name: "Mesopause",            base_altitude:84.852, top_altitude:86.0,    baseTemp: 186.946,              pressRatio: 3.68501E-6,   lapseRate: 0.0 })
 
 }
 
@@ -98,98 +112,8 @@ type AtmoParams struct {
     tempRatio               float64
     densityRatio            float64
 }        
-/*
-        ) = (   layerName: "",          geopotentialAltMeters: 0.0, geopotentialAltFeet: 0.0,
-                                    geometricAltMeters:0.0, geometricAltFeet: 0.0,      temperatureK: 0.0,
-                                    temperatureC: 0.0,      temperatureF: 0.0,          temperatureR: 0.0,
-                                    pressure:0.0,           density:0.0,                soundSpeed:0.0,
-                                    pressureRatio: 0.0,     tempRatio: 0.0,             densityRatio: 0.0)
-
-*/
-/*
-class isa76 {
-
-    //let g0 = 9.80665    // (at sea level)
-    let R_SGC = 287.05               // specific gas constant in J / kg.K
-    let GAMMA_AIR = 1.4
-    let EARTHRADIUS = 6356766.0
-
-    let GRAVITY_ACC = 9.80665  // accel. of GRAVITY_ACC
-    let MOL_WT  = 28.9644  // molecular weight of air
-    let R_GAS   = 8.31432  // gas constant
-    var GMR     = 0.0      // hydrostatic constant
-
-    var layers = [(name: String, base_altitude:Double, top_altitude:Double, baseTemp:Double, pressRatio: Double, lapseRate: Double)]()
-
-    // standard sealevel
-    let STD_SEALEVEL_TEMP = 288.15  // in Kelvin
-    let seaLevelDensity  = 1.2250 // kg/m^3
-    let seaLevelPressure = 101325.0 // in pa
-    
-    var seaLevelTemp = 0.0
-    
-    //var path = NSURL()
-    //var baseURL : NSURL = NSURL()
-    
-
-
-    var layersInitialized = false
-    var layersDisplay = ""
-    var custAltitude = ""
-    var lastAltitude = 0.0001
-    var lastUnit = ""
-
-    
-    let output = outputResult()
-    
-    var params : (  layerName: String,
-                    geopotentialAltMeters: Double,
-                    geopotentialAltFeet: Double,
-                    geometricAltMeters: Double,
-                    geometricAltFeet: Double,
-                    temperatureK: Double,
-                    temperatureC: Double,
-                    temperatureF: Double,
-                    temperatureR: Double,
-                    pressure: Double,
-                    density: Double,
-                    soundSpeed:Double,
-                    pressureRatio: Double,
-                    tempRatio: Double,
-                    densityRatio: Double) = (   layerName: "",          geopotentialAltMeters: 0.0, geopotentialAltFeet: 0.0,
-                                                geometricAltMeters:0.0, geometricAltFeet: 0.0,      temperatureK: 0.0,
-                                                temperatureC: 0.0,      temperatureF: 0.0,          temperatureR: 0.0,
-                                                pressure:0.0,           density:0.0,                soundSpeed:0.0,
-                                                pressureRatio: 0.0,     tempRatio: 0.0,             densityRatio: 0.0)
-
-    
-
-    init() {
-
-        GMR = GRAVITY_ACC * (MOL_WT / R_GAS) // hydrostatic constant
-        
-        seaLevelTemp = STD_SEALEVEL_TEMP
-        
-        layers.append((name: "Negative Troposphere",base_altitude:-5.004, top_altitude:0.0,    baseTemp: 320.676,  pressRatio: 1.7543,      lapseRate:-6.5 ))
-        layers.append((name: "Troposphere",        base_altitude:0.0,    top_altitude:11.0,    baseTemp: 288.15,  pressRatio: 1.0,          lapseRate:-6.5 ))
-
-        layers.append((name: "Tropopause",         base_altitude:11.0,   top_altitude:20.0,    baseTemp: 216.65,  pressRatio: 2.233611E-1,  lapseRate: 0.0 ))
-        layers.append((name: "Low Stratosphere", base_altitude:20.0,   top_altitude:32.0,    baseTemp: 216.65,  pressRatio: 5.403295E-2,  lapseRate: 1.0 ))
-        layers.append((name: "High Stratosphere", base_altitude:32.0,   top_altitude:47.0,    baseTemp: 228.65,  pressRatio: 8.5666784E-3, lapseRate: 2.8 ))
-        layers.append((name: "Stratopause",        base_altitude:47.0,   top_altitude:51.0,    baseTemp: 270.65,  pressRatio: 1.0945601E-3, lapseRate: 0.0 ))
-        layers.append((name: "Low Mesophere",    base_altitude:51.0,   top_altitude:71.0,    baseTemp: 270.65,  pressRatio: 6.6063531E-4, lapseRate:-2.8 ))
-        layers.append((name: "High Mesophere",    base_altitude:71.0,   top_altitude:84.852,  baseTemp: 214.65,  pressRatio: 3.9046834E-5, lapseRate:-2.0 ))
-        layers.append((name: "Mesopause",          base_altitude:84.852, top_altitude:86.0,    baseTemp: 186.946, pressRatio: 3.68501E-6,   lapseRate: 0.0 ))
-        
-        // set path to local images...
-        //path = NSBundle.mainBundle().URLForResource("Comparison_US_standard_atmosphere_1962", withExtension: "png")!
-        //baseURL = NSURL(fileURLWithPath: path)
-      
-    }
-*/
 
 func (isa *isa76) setSealevelTemp(temp float64) {
-//    var temp, _ = strconv.ParseFloat(newTemp, 64)
     
     // temperature must be in kelvin
     if temp < 0.0 {
@@ -198,19 +122,23 @@ func (isa *isa76) setSealevelTemp(temp float64) {
     isa.seaLevelTemp = temp
     localTemp := isa.seaLevelTemp
 
-    // recalculate temps for each layer
+    // recalculate temps and pressure ratio for each layer
     for k, layer := range isa.layers {
         delta_h := layer.top_altitude - layer.base_altitude
         if k == 0 {
            layer.baseTemp = localTemp - (layer.lapseRate * delta_h)
-           continue
-        }
+//           custPressure[layer.base_altitude] = isa.getPressureRatio(layer, localTemp, delta_h)
+//           continue
+        } else {
 //        if geopoAltitude >= layer.base_altitude && geopoAltitude <= layer.top_altitude {
 
-            isa.layers[k].baseTemp = localTemp
+            layer.baseTemp = localTemp
             //localTemp := layer.baseTemp + (layer.lapseRate * delta_h)
             localTemp = layer.baseTemp + (layer.lapseRate * delta_h) 
-/////
+        }
+        fmt.Println("---------------------")
+        fmt.Println(layer.baseTemp)
+        fmt.Println("---------------------")
             //layer.baseTemp = localTemp - (layer.lapseRate * delta_h)
 //////
             //isa.params.tempRatio = localTemp / isa.seaLevelTemp // -> aka theta
@@ -219,14 +147,15 @@ func (isa *isa76) setSealevelTemp(temp float64) {
             
 //            isa.params.geometricAltMeters = geometricAltitude * 1000
 //            isa.params.geometricAltFeet = isa.params.geometricAltMeters * 3.28084
-            
- /*           if layer.lapseRate == 0.0 {
+           custPressure[layer.base_altitude] = isa.getRelativePressureRatio(layer, k, localTemp, delta_h)
+/*            
+            if layer.lapseRate == 0.0 {
                 // isothermal
                 isa.params.pressureRatio = layer.pressRatio * math.Exp(-isa.GMR*(delta_h/layer.baseTemp))   // -> aka delta
             } else {
                 isa.params.pressureRatio = layer.pressRatio * math.Pow(layer.baseTemp/localTemp, isa.GMR/layer.lapseRate) // -> aka delta
             }
-            
+/*            
             isa.params.densityRatio = isa.params.pressureRatio / isa.params.tempRatio // -> aka sigma
 
             isa.params.layerName = layer.name
@@ -241,10 +170,31 @@ func (isa *isa76) setSealevelTemp(temp float64) {
             isa.params.soundSpeed   = math.Pow((GAMMA_AIR * isa.params.temperatureK * R_SGC), 0.5) */
  //       }
     }
-    fmt.Printf("%#v\n", isa.layers)
-
+    //isa.swap()
+    for _, layer := range isa.layers {
+        fmt.Printf("%#v\n\n", *layer)
+    }
 }
 
+func (isa *isa76) swap() {
+    for _, layer := range isa.layers {
+        layer.pressRatio = custPressure[layer.base_altitude]
+    }
+}
+
+func (isa *isa76) getRelativePressureRatio(l *layer, index int, localTemp, delta_h float64) float64 {
+    switch index {
+    case 0: 
+    case 1: return 1
+    default:
+        if l.lapseRate == 0.0 {
+            // isothermal
+            return math.Exp(-isa.GMR*(delta_h/l.baseTemp))   // -> aka delta
+        } else {
+            return math.Pow(l.baseTemp/localTemp, isa.GMR/l.lapseRate) // -> aka delta
+        }
+    }
+}
 /*
 func (isa *isa76) setPressure(inout tuple:(name: String, base_altitude:Double, top_altitude:Double, baseTemp:Double, pressRatio: Double, lapseRate: Double)) {
     tuple.baseTemp = 0 //bs
@@ -663,7 +613,7 @@ func main() {
     var isa = isa76{}
     isa.set()
     fmt.Println(isa.showAbout()+"\n")
-    isa.setSealevelTemp(STD_SEALEVEL_TEMP+11.5)
+    isa.setSealevelTemp(STD_SEALEVEL_TEMP) //+11.5)
     for {
         fmt.Println("Enter an Altitude between -5000m (-16404ft) and +86000m (282152ft) followed by a unit (m or f)")
         unit = "m"
